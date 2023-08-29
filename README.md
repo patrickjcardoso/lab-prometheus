@@ -1,15 +1,31 @@
-# lab-promethues
-
 # Laboratório Prometheus
 
-1. Acessar a documentação do Promethues: Ubuntu 20.04.5
+> Status: Developing 
+
+
+## Descrição do Laboratório:
+
+Laboratório baseado no exemplo disponível no site [prometheus.io](https://prometheus.io/docs/introduction/overview/)
+
+## Technologies Used:
+
+* Linux (Ubuntu based)
+* Golang
+* Prometheus
+* Grafana
+* Alertmanager
+
+
+
+
+1. Acessar a documentação do Promethues:
 
 - Introdução ao Prometheus
     - ****MOSTRE-ME COMO É FEITO****
     1. Instalar o Docker e o Docker-compose
     2. Criar o arquivo de configuração do promethues e nodeexporter
     
-    ```python
+    ```
     global:
       scrape_interval: 5s
     
