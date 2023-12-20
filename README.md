@@ -368,9 +368,167 @@ docker-compose ps
 
 ## Objetivo 03 - Criando alertas baseados em métricas:
 
-### Passo 01 - Ajustar o arquivo do Docker Compose.
+Neste parte, criaremos alertas na métrica ping_request_count que instrumentamos anteriormente no  servidor HTTP escrito em Go .
 
-- **Implementação de alertas utilizando o Alertmanager**
-- **Configuração de alertas no arquivo `prometheus.yml`**
+Para fins de aprendizado, **vamos gerar um alerta quando a mérica ping_request_countmétrica for maior que 5.** Verifique as [práticas recomendadas](https://prometheus.io/docs/practices/alerting/) do mundo real para saber mais sobre os princípios de alerta.
+
+
+### Passo 01 - Obter webhook
+
+O Alertmanager oferece suporte a vários receptores como email, pagerduty, slack, webhook etc. Por meio dos quais pode notificar quando um alerta está sendo disparado.  Usaremos como receptor para este tutorial um webhook, **acesse `webhook.site` e copie a URL do webhook que usaremos posteriormente para configurar o Alertmanager.**
+
+### Passo 02 - Criar o arquivo de configuração do Alertmanager
+
+- **Criação do arquivo de configuração `alermanager.yml`**
+
+```yaml
+# Configurações globais aplicadas a todo o arquivo de configuração do Alertmanager.
+global:
+  # Define o tempo limite para resolução de alertas como 5 minutos.
+  resolve_timeout: 5m
+
+# Configurações de roteamento de alertas.
+route:
+  # Define o destinatário padrão para alertas como "webhook_receiver".
+  receiver: webhook_receiver
+
+# Configurações dos receptores de alertas.
+receivers:
+  # Configuração do receptor "webhook_receiver".
+  - name: webhook_receiver
+    # Configuração específica para o tipo de receptor "webhook_configs".
+    webhook_configs:
+      # URL do webhook onde os alertas serão enviados. Substitua '<INSERT-YOUR-WEBHOOK>' pela URL real.
+      - url: '<INSERT-YOUR-WEBHOOK>'
+        # Define se os alertas resolvidos também devem ser enviados para o webhook. Neste caso, definido como falso.
+        send_resolved: false
+```
+
+### Passo 03 - Adicionar container do Alertmanager
+
+- **Adicionar o container ao arquivo `docker-compose.yml`**
+
+```yaml
+# Versão do Docker Compose
+version: '3'
+
+# Definição dos serviços
+services:
+  # Serviço para o Prometheus
+  prometheus:
+    # Imagem a ser utilizada para o serviço Prometheus
+    image: prom/prometheus
+    # Mapeamento de portas - o Prometheus estará acessível na porta 9090 do host
+    ports:
+      - 9090:9090
+    # Mapeamento de volumes - vincula o arquivo prometheus.yml local ao caminho no contêiner
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    # Comando a ser executado pelo contêiner, especificando o arquivo de configuração
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+    # Dependência do serviço node-exporter - o Prometheus inicia após o node-exporter
+    depends_on:
+      - node-exporter
+
+  # Serviço para o Node Exporter
+  node-exporter:
+    # Imagem a ser utilizada para o serviço Node Exporter
+    image: prom/node-exporter
+    # Mapeamento de portas - o Node Exporter estará acessível na porta 9100 do host
+    ports:
+      - 9100:9100
+
+  # Serviço para o Grafana
+  grafana:
+    # Imagem a ser utilizada para o serviço Grafana
+    image: grafana/grafana
+    # Mapeamento de portas - o Grafana estará acessível na porta 3000 do host
+    ports:
+      - 3000:3000
+
+  # Serviço do Alertmanager
+  alertmanager:
+    # Nome do contêiner para o Alertmanager
+    container_name: alertmanager
+    # Imagem a ser utilizada para o serviço Alertmanager
+    image: prom/alertmanager
+    # Mapeamento de volumes - vincula o arquivo alertmanager.yml local ao caminho no contêiner
+    volumes:
+      - ./alertmanager.yml:/etc/alertmanager/alertmanager.yml
+    # Mapeamento de portas - o Alertmanager estará acessível na porta 9093 do host
+    ports:
+      - 9093:9093
+```
+
+### Passo 04 - Ajustar as configurações do Prometheus
+
+- **Ajustar o arquivo de configuração `prometheus.yml`**
+
+```yaml
+# Configurações globais aplicadas a todo o arquivo de configuração do Prometheus.
+global:
+  # Intervalo de raspagem global. Define com que frequência o Prometheus coleta métricas.
+  scrape_interval: 5s
+  # Intervalo de avaliação global. Define com que frequência as regras de alerta são avaliadas.
+  evaluation_interval: 10s
+  # Lista de arquivos de regras a serem carregados.
+rule_files:
+  - rules.yml
+
+# Configurações de alerta.
+alerting:
+  # Lista de configurações de Alertmanager.
+  alertmanagers:
+    - static_configs:
+      # Configurações estáticas para o Alertmanager, definindo os alvos para envio de alertas.
+      - targets:
+        - localhost:9093
+
+# Configurações de raspagem (scrape).
+scrape_configs:
+  # Configurações para o job chamado 'prometheus'.
+  - job_name: prometheus
+    # Configuração estática para definir os alvos (targets) para raspagem.
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # Configurações para o job chamado 'simple_server'.
+  - job_name: simple_server
+    # Configuração estática para definir os alvos (targets) para raspagem.
+    static_configs:
+      - targets: ["localhost:8090"]
+```
+
+
+### Passo 05 - Criar as regras para o nosso alerta
+
+- **Criar o arquivo de configuração `rules.yml`**
+
+```yaml
+# Lista de grupos de regras no arquivo rules.yml.
+groups:
+  # Definição do primeiro grupo de regras com o nome "Count greater than 5".
+  - name: Count greater than 5
+    # Lista de regras dentro deste grupo.
+    rules:
+      # Definição da primeira regra no grupo.
+      - alert: CountGreaterThan5
+        # Expressão da regra: alerta se o valor da métrica 'ping_request_count' for maior que 5.
+        expr: ping_request_count > 5
+        # Tempo pelo qual a condição da regra deve persistir antes de disparar um alerta.
+        for: 10s
+```
+
+### Passo 05 - Testar o ambiente
+
+* Pare os containers e suba novamente, para que a nova configuração e os novos arquivos sejam carregados.
+
+* Acesse o Prometheus e verifique se os targets estão acessíveis.
+
+* Em Status -> Rules, verifique se a regra está disponível.
+
+* Em Alerts, verifique seu o alerta está presente.
 
 Com esses passos, você estará pronto para explorar e entender melhor o Prometheus, Grafana e Alertmanager no contexto deste laboratório. Boas explorações!
+
